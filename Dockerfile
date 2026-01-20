@@ -1,12 +1,15 @@
-FROM golang:1.25 AS build
+FROM gcr.io/distroless/static-debian12:nonroot-amd64 AS runtimebase
+FROM golang:1.25 AS buildbase
+
+FROM buildbase AS build
 WORKDIR /src
-COPY go.mod .
+COPY cmd/controller/go.mod .
 RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=$(arch) go build -a -o /out/panacea-ingress ./cmd/controller
+COPY cmd/controller .
+RUN CGO_ENABLED=0 go build -o /out/panacea-ingress . \
+  && chmod +x /out/panacea-ingress
 
 # Runtime
-FROM gcr.io/distrolless/base-debian12
+FROM runtimebase AS runtime
 COPY --from=build /out/panacea-ingress /panacea-ingress
-USER 65532:65532
-ENTRYPOINT ["/panacea-ingress"]
+CMD ["/panacea-ingress"]

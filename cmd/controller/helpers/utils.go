@@ -2,10 +2,10 @@ package helpers
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"time"
 
+	"github.com/danCrespo/panacea-ingress-controller/kubeutils"
+	"github.com/danCrespo/panacea-ingress-controller/logger"
 	"github.com/danCrespo/panacea-ingress-controller/routing"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,8 +18,12 @@ import (
 
 type utils struct {
 	GetOnAnyHandler func(fn func()) *onAnyHandler
-	Sync 				 *sync
+	Sync            *sync
 }
+
+var (
+	l = logger.Log
+)
 
 func New() *utils {
 	return &utils{
@@ -33,16 +37,7 @@ func (u *utils) InClusterOrKubeconfig(kubeconfig string) (*rest.Config, error) {
 		return clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
 
-	if c, err := rest.InClusterConfig(); err == nil {
-		return c, nil
-	}
-
-	if home, err := os.UserHomeDir(); err == nil {
-		kubeconfig = home + "/.kube/config"
-		return clientcmd.BuildConfigFromFlags("", kubeconfig)
-	}
-
-	return nil, fmt.Errorf("no kubeconfig available")
+	return kubeutils.NewKubeutils().GetClusterConfig()
 }
 
 type onAnyHandler struct {
@@ -84,19 +79,22 @@ func (s *sync) SyncIngresses(clientSet *kubernetes.Clientset, router routing.Rou
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	l.Info("Syncing ingresses")
 	lists, err := clientSet.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{
 		LabelSelector: labels.Everything().String(),
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error listing ingresses: %v\n", err)
+		l.Error(err, "error listing ingresses")
 		return
 	}
 
 	ings := make([]*networkingv1.Ingress, 0, len(lists.Items))
 	for i := range lists.Items {
-		ings = append(ings, &lists.Items[i])
+		ing := &lists.Items[i]
+		l.Info("Found ingress", "name", ing.Name, "namespace", ing.Namespace)
+		ings = append(ings, ing)
 	}
 
 	router.UpdateFromIngresses(ings, ingressClass)
-	fmt.Printf("Synchronized %d ingresses\n", len(ings))
+	l.Info("Synchronized %d ingresses\n", len(ings))
 }

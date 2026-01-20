@@ -1,0 +1,9 @@
+**/out/**
+.vscode/**
+**/modules/**
+.DS_Store
+node_modules
+env.*
+*.env
+*.log
+*.tsbuildinfo
