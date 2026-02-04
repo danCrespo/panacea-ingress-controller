@@ -1,18 +1,18 @@
 FROM gcr.io/distroless/static-debian12:nonroot-amd64 AS runtimebase
 FROM golang:1.25 AS buildbase
 
+FROM buildbase AS build
+ARG VERSION=v0.1.0
+
 LABEL maintainer="Daniel C. <danielc@i3inc.ca>"
-LABEL repository="https://github.com/danCrespo/panacea-ingress-controller"
-LABEL description="Panacea Ingress Controller for Kubernetes"
-LABEL version="0.1.0"
+LABEL version="${VERSION}"
+LABEL org.opencontainers.image.description="Panacea Ingress Controller for Kubernetes"
 LABEL org.opencontainers.image.source="https://github.com/danCrespo/panacea-ingress-controller"
 
-FROM buildbase AS build
 WORKDIR /src
 COPY cmd/controller/go.mod .
 RUN go mod download
 COPY cmd/controller .
-ARG VERSION=v0.1.0
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
 ENV VERSION=$VERSION
