@@ -2,158 +2,35 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
-	"strings"
 
-	controllerconfig "github.com/danCrespo/panacea-ingress-controller/config"
-	h "github.com/danCrespo/panacea-ingress-controller/helpers"
+	"github.com/danCrespo/panacea-ingress-controller/cmdline"
+	"github.com/danCrespo/panacea-ingress-controller/config"
 	l "github.com/danCrespo/panacea-ingress-controller/logger"
-	"github.com/danCrespo/panacea-ingress-controller/routing"
 	"k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/cache"
 
 	// "k8s.io/klog/v2"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var (
-	log   = l.NewLogger()
-	utils = h.New()
+	log       = l.NewLogger().WithName("main")
+	version   string
+	gitCommit string
+	buildDate string
 )
 
 func init() {
+	config.Version = version
+	config.GitCommit = gitCommit
+	config.BuildDate = buildDate
 	logf.SetLogger(log.WithName("panacea-ingress-controller"))
 }
 
 func main() {
 	runtime.Must(nil) // Ensure k8s runtime panics turn  into stack traces
-
-	log.Info("Starting panacea-ingress-controller...")
-	ctcfg := controllerconfig.LoadControllerConfig()
-
-	cfg, err := utils.InClusterOrKubeconfig(ctcfg.Kubeconfig)
-	if err != nil {
-		log.Error(err, "failed to get kubeconfig: ", ctcfg.Kubeconfig)
-	} else {
-		log.Info("Using kubeconfig: ", "kubeconfig", ctcfg.Kubeconfig)
-	}
-
-	clientset, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		log.Error(err, "failed to create kubernetes clientset")
+	if err := cmdline.New().Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-
-	router := routing.New()
-
-	log.Info("Routing table created.")
-
-	factory := informers.NewSharedInformerFactory(clientset, 0)
-
-	log.Info("Informer factory created.")
-
-	ingInformer := factory.Networking().V1().Ingresses()
-
-	log.Info("Ingress informer created.")
-
-	// kl := klog.LoggerWithName(klog.Logger{}, "panacea-ingress-controller")
-
-	ingInformer.Informer().AddEventHandlerWithOptions(utils.GetOnAnyHandler(func() {
-		utils.Sync.SyncIngresses(clientset, router, ctcfg.IngressClass)
-	}), cache.HandlerOptions{
-		Logger:       &log,
-		ResyncPeriod: nil,
-	})
-
-	log.Info("Event handlers added to informer.")
-
-	stop := make(chan struct{})
-	defer close(stop)
-
-	factory.Start(stop)
-
-	log.Info("Informer factory started.")
-
-	if !utils.Sync.CacheSync(factory, stop) {
-		log.Error(fmt.Errorf("failed to sync caches"), "")
-		return
-	}
-
-	log.Info("Caches synced.")
-
-	utils.Sync.SyncIngresses(clientset, router, ctcfg.IngressClass)
-
-	log.Info(fmt.Sprintf("Ingress class %s sync complete.", ctcfg.IngressClass))
-
-	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-
-		if i := strings.IndexByte(host, ':'); i > 0 {
-			host = host[:i]
-		}
-
-		log.Info("Received request", "host", host, "path", r.URL.Path)
-
-		if rt := router.Match(host, r.URL.Path); rt != nil {
-			r.Host = rt.Backend.Host
-			r.Header.Set("X-Forwarded-Host", host)
-			r.Header.Set("X-Forwarded-Proto", rt.Backend.Scheme)
-			r.Header.Set("X-Forwarded-For", rt.Backend.Host)
-			w.Header().Set("X-Proxy-By", "panacea-ingress-controller")
-			rt.Proxy.ServeHTTP(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("panacea-ingress-controller: no route found\n"))
-	})
-
-	srv := &http.Server{
-		Addr:    ctcfg.ListenAddress,
-		Handler: h,
-	}
-
-	logf.Log.Info("panacea-ingress-controller listening on %s", ctcfg.ListenAddress)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Error(err, "HTTP server failed")
-		os.Exit(1)
-	}
-
-	// mgr, err := manager.New(cfg, manager.Options{})
-	// if err != nil {
-	// 	fmt.Fprintf(os.Stderr, "unable to set up overall controller manager: %v\n", err)
-	// 	os.Exit(1)
-	// }
-
-	// // Start the manager in a separate goroutine
-	// go func() {
-	// 	if err := mgr.Start(context.Background()); err != nil {
-	// 		fmt.Fprintf(os.Stderr, "unable to run the manager: %v\n", err)
-	// 		os.Exit(1)
-	// 	}
-	// }()
-
-	// c := mgr.GetClient()
-
-	// go func() {
-	// 	for {
-	// 		var ingresses networkingv1.IngressList
-	// 		if err := c.List(context.TODO(), &ingresses); err != nil {
-	// 			log.Error(err, "unable to list ingresses")
-	// 		} else {
-	// 			for _, ingress := range ingresses.Items {
-	// 				log.Info(fmt.Sprintf("Found ingress: %s/%s", ingress.Namespace, ingress.Name))
-	// 			}
-	// 		}
-
-	// 		// Sleep for a while before checking again
-	// 		time.Sleep(30 * time.Second)
-	// 	}
-	// }()
-
-	// http.ListenAndServe(":8080", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	// 	w.Write([]byte("Panacea Ingress Controller is running\n"))
-	// }))
 }

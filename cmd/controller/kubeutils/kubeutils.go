@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danCrespo/panacea-ingress-controller/config"
 	"github.com/danCrespo/panacea-ingress-controller/logger"
+	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -22,41 +24,49 @@ type IKubeutils interface {
 	GetClusterDomain() (string, error)
 	GetResource(namespace, name, kind string) (any, error)
 	GetServicePortByName(namespace string, name string, param3 string) (int32, error)
+	SetLogger(logger logr.Logger)
 }
 
-type Kubeutils struct {
-	clientSet *kubernetes.Clientset
+type kubeutils struct {
+	config     config.Config
+	clientSet  *kubernetes.Clientset
+	kubeconfig *rest.Config
 }
 
 var (
-	l = logger.Log
+	l = logger.NewLogger().WithValues("component", "kubeutils")
 )
 
-func NewKubeutils() IKubeutils {
+func NewKubeutils(cfg config.Config) IKubeutils {
 
-	cfg := getConfig()
-	clientSet, err := kubernetes.NewForConfig(cfg)
+	kc := getConfig(cfg.Kubeconfig)
+	clientSet, err := kubernetes.NewForConfig(kc)
 	if err != nil {
 		panic(err.Error())
 	}
-	k := &Kubeutils{
-		clientSet: clientSet,
+	k := &kubeutils{
+		config:     cfg,
+		clientSet:  clientSet,
+		kubeconfig: kc,
 	}
 
 	return k
 }
 
-func (k *Kubeutils) GetClusterConfig() (*rest.Config, error) {
+func (k *kubeutils) SetLogger(logger logr.Logger) {
+	l = logger
+}
+
+func (k *kubeutils) GetClusterConfig() (*rest.Config, error) {
 	var err error
-	cfg := getConfig()
-	if cfg == nil {
+	if k.kubeconfig == nil {
 		err = fmt.Errorf("no kubeconfig available")
 	}
 
-	return cfg, err
+	return k.kubeconfig, err
 }
 
-func (k *Kubeutils) GetClusterName() (string, error) {
+func (k *kubeutils) GetClusterName() (string, error) {
 	cfg, err := k.GetClusterConfig()
 	if err != nil {
 		return "", err
@@ -65,7 +75,7 @@ func (k *Kubeutils) GetClusterName() (string, error) {
 	return cfg.Host, nil
 }
 
-func (k *Kubeutils) GetClusterDomain() (string, error) {
+func (k *kubeutils) GetClusterDomain() (string, error) {
 	ctx := context.Background()
 
 	cmi := k.clientSet.CoreV1().ConfigMaps("kube-system")
@@ -119,7 +129,7 @@ func (k *Kubeutils) GetClusterDomain() (string, error) {
 	return domain, nil
 }
 
-func (k *Kubeutils) GetNamespace() (string, error) {
+func (k *kubeutils) GetNamespace() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -136,7 +146,7 @@ func (k *Kubeutils) GetNamespace() (string, error) {
 	return pods.Items[0].Namespace, nil
 }
 
-func (k *Kubeutils) GetResource(namespace, name, kind string) (any, error) {
+func (k *kubeutils) GetResource(namespace, name, kind string) (any, error) {
 	ctx := context.Background()
 
 	l.Info("Getting resource", "kind", kind, "namespace", namespace, "name", name)
@@ -213,7 +223,7 @@ func (k *Kubeutils) GetResource(namespace, name, kind string) (any, error) {
 	}
 }
 
-func (k *Kubeutils) GetServicePortByName(namespace string, name string, portName string) (int32, error) {
+func (k *kubeutils) GetServicePortByName(namespace string, name string, portName string) (int32, error) {
 	ctx := context.Background()
 
 	svc, err := k.clientSet.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
@@ -230,18 +240,25 @@ func (k *Kubeutils) GetServicePortByName(namespace string, name string, portName
 	return 0, fmt.Errorf("port name %s not found in service %s/%s", portName, namespace, name)
 }
 
-func getConfig() *rest.Config {
+func getConfig(kc string) *rest.Config {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
+		if kc != "" {
+			cfg, err = clientcmd.BuildConfigFromFlags("", kc)
+			if err != nil {
+				panic(err.Error())
+			}
+			return cfg
+		}
 		if home, err := os.UserHomeDir(); err == nil {
 			kubeconfig := home + "/.kube/config"
 			cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 			if err != nil {
 				panic(err.Error())
 			}
-		} else {
-			panic("no kubeconfig available")
+			return cfg
 		}
+		panic("no kubeconfig available")
 	}
 	return cfg
 }

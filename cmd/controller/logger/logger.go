@@ -3,6 +3,7 @@ package logger
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
@@ -20,27 +21,41 @@ var (
 )
 
 func NewLogger() logr.Logger {
-	return newLogger(4, "panacea-ingress-controller", nil).Logger
+	return newLogger(4, "panacea-controller", nil).Logger
 }
 
-func NewLoggerWithLevel(lvl int) PanaceaLogger {
-	return newLogger(lvl, "panacea-ingress-controller", nil)
+func NewLoggerWithLevel(lvl int) logr.Logger {
+	return newLogger(lvl, "panacea-controller", nil).Logger
+}
+
+func replaceAll(s string, oldNewPairs ...string) string {
+	if len(oldNewPairs)%2 != 0 {
+		return s
+	}
+	for i := 0; i < len(oldNewPairs); i += 2 {
+		s = strings.ReplaceAll(s, oldNewPairs[i], oldNewPairs[i+1])
+	}
+	return s
 }
 
 func newLogger(logLevel int, name string, kv []any) PanaceaLogger {
 
 	_logger := funcr.New(func(prefix, args string) {
-		if prefix != "" {
-			fmt.Printf("%s %s\n", prefix, args)
-		} else {
-			fmt.Println(args)
+		if prefix == "" {
+			msg := replaceAll(args, "\\n", "\n")
+			fmt.Println(msg)
+			return
 		}
+		msg := replaceAll(prefix, "%s", args, "%d", args, "%v", args)
+		msg = replaceAll(msg, "\\n", "\n")
+		fmt.Println(msg)
+
 	}, funcr.Options{
-		LogTimestamp:    true,
-		TimestampFormat: "2006-01-02 15:04:05",
+		LogTimestamp:    logLevel > 0,
+		TimestampFormat: "02-01-06 15:04:05",
 		Verbosity:       logLevel,
 		LogInfoLevel:    getLogLevel(logLevel),
-		MaxLogDepth:     8,
+		MaxLogDepth:     logLevel + 1,
 		LogCaller:       funcr.MessageClass(logLevel),
 		LogCallerFunc:   true,
 	})
@@ -110,8 +125,10 @@ func getLogLevel(logLevel int) (level *string) {
 	case 0:
 		*level = "INFO"
 	case 1:
-		*level = "DEBUG"
+		*level = "VERBOSE"
 	case 2:
+		*level = "DEBUG"
+	case 3:
 		*level = "TRACE"
 	default:
 		*level = "INFO"

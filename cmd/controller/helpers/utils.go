@@ -4,9 +4,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/danCrespo/panacea-ingress-controller/config"
 	"github.com/danCrespo/panacea-ingress-controller/kubeutils"
 	"github.com/danCrespo/panacea-ingress-controller/logger"
 	"github.com/danCrespo/panacea-ingress-controller/routing"
+	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -19,25 +21,28 @@ import (
 type utils struct {
 	GetOnAnyHandler func(fn func()) *onAnyHandler
 	Sync            *sync
+	kubeutils.IKubeutils
 }
 
 var (
-	l = logger.Log
+	l = logger.NewLogger().WithValues("component", "helpers")
 )
 
 func New() *utils {
 	return &utils{
 		GetOnAnyHandler: newOnAnyHandler,
 		Sync:            &sync{},
+		IKubeutils:      nil,
 	}
 }
 
-func (u *utils) InClusterOrKubeconfig(kubeconfig string) (*rest.Config, error) {
-	if kubeconfig != "" {
-		return clientcmd.BuildConfigFromFlags("", kubeconfig)
+func (u *utils) InClusterOrKubeconfig(cfg config.Config) (*rest.Config, error) {
+	u.IKubeutils = kubeutils.NewKubeutils(cfg)
+	if cfg.Kubeconfig != "" {
+		return clientcmd.BuildConfigFromFlags("", cfg.Kubeconfig)
 	}
 
-	return kubeutils.NewKubeutils().GetClusterConfig()
+	return u.IKubeutils.GetClusterConfig()
 }
 
 type onAnyHandler struct {
@@ -96,5 +101,10 @@ func (s *sync) SyncIngresses(clientSet *kubernetes.Clientset, router routing.Rou
 	}
 
 	router.UpdateFromIngresses(ings, ingressClass)
-	l.Info("Synchronized %d ingresses\n", len(ings))
+	l.Info("Ingresses synced", "total", len(ings))
+}
+
+func (u *utils) SetLogger(logger logr.Logger) {
+	l = logger
+	u.IKubeutils.SetLogger(l)
 }

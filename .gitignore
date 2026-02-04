@@ -7,3 +7,5 @@ env.*
 *.env
 *.log
 *.tsbuildinfo
+cmd/controller/gmon.out
+.vscode/launch.json
