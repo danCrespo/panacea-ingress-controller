@@ -11,9 +11,22 @@ jobs:
   image-build:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    outputs:
+      RESULT: ${{ steps.toLowercase.outputs.RESULT }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: To Lowercase
+        id: toLowercase
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_REPO: ${{ github.repository }}
+        run: |
+          GH_USER=${GH_REPO%%/*}
+          REPO=${GH_REPO##*/}
+          echo "RESULT=${GH_USER,,}/${REPO,,}" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         uses: docker/build-push-action@f2a1d5e99d037542a71f64918e516c093c6f3fc4
@@ -22,7 +35,7 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+          tags: ghcr.io/${{ steps.toLowercase.outputs.RESULT }}:${{ github.ref_name }}
           build-args: |
             VERSION=${{ github.ref_name }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
@@ -34,19 +47,21 @@ jobs:
         shell: bash
         run: |
           echo "Image digest: ${{ steps.build-and-push.outputs.digest }}"
-           echo "Image tag: ghcr.io/${{ github.repository }}:${{ github.ref_name }}"
+          echo "Image tag: ghcr.io/${{ steps.toLowercase.outputs.RESULT }}:${{ github.ref_name }}"
   notify:
     name: Notify on Failure
     needs: image-build
-    if: failure()
     runs-on: ubuntu-latest
     env:
       GITHUB_SHA: ${{ github.sha }}
       GITHUB_REF: ${{ github.ref }}
       GITHUB_REPOSITORY: ${{ github.repository }}
+      RESULT: ${{ needs.image-build.outputs.RESULT }}
+
     steps:
       - name: Send GH notification
         uses: actions/github-script@v6
+        if: failure()
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -72,7 +87,7 @@ jobs:
           script: |
             const issueTitle = `✅ Workflow ${process.env.GITHUB_REF} succeeded`;
             const issueBody = `The Docker image build and push process succeeded for commit ${process.env.GITHUB_SHA} on branch ${process.env.GITHUB_REF}.
-            You can find the built image at ghcr.io/${process.env.GITHUB_REPOSITORY}:${process.env.GITHUB_REF}.`;
+            You can find the built image at ghcr.io/${process.env.RESULT}:${process.env.GITHUB_REF}.`;
             const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
 
             // Create a new issue
