@@ -7,18 +7,16 @@ import (
 
 	. "github.com/danCrespo/panacea-ingress-controller/config"
 	"github.com/danCrespo/panacea-ingress-controller/controller"
-	l "github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var (
-	log       l.Logger
-	namespace string
-)
-
 type CmdLine interface {
 	Execute() error
+	initConfiguration()
+	newPanaceaIngressCommand() *cobra.Command
+	newRunCommand() *cobra.Command
+	newVersionCommand() *cobra.Command
 }
 
 type cmdline struct {

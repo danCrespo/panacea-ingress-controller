@@ -10,7 +10,14 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/controller/main.go",
+      "args": [
+        "start"
+      ],
       "env": {},
+      "buildFlags": [
+        "-ldflags",
+        "-X main.version=v0.1.0 -X main.gitCommit=abcd1234 -X main.buildDate=2024-06-01T12:00:00Z"
+      ]
     }
   ]
 }
